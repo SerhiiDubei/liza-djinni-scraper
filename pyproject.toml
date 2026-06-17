@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "liza"
+version = "0.1.0"
+description = "Djinni vacancies scraper + API"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "httpx",
+    "beautifulsoup4",
+    "lxml",
+    "sqlmodel",
+    "apscheduler",
+    "pydantic-settings",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio"]
+
+[tool.setuptools.packages.find]
+include = ["liza*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = ["network: live tests that hit djinni.co (skipped by default)"]
