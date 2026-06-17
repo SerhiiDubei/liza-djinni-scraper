@@ -1,0 +1,151 @@
+# LIZA — Djinni Vacancies Scraper & API
+
+LIZA is a self-hosted Python service that scrapes the public [Djinni](https://djinni.co) jobs catalog via Schema.org JSON-LD markup on a schedule, stores vacancies in SQLite with deduplication, and serves them over a FastAPI HTTP API.
+
+> **Note:** There is no official public Djinni read API. LIZA scrapes public pages. Respect Djinni's Terms of Service and keep request rates polite.
+
+---
+
+## Features
+
+- Parses `JobPosting` JSON-LD embedded in every Djinni jobs page — durable, no fragile CSS selectors.
+- Periodic background refresh via APScheduler.
+- SQLite storage with URL-based dedup (`first_seen` / `last_seen` timestamps).
+- FastAPI REST API with filtering, full-text search, and pagination.
+- Polite delays, exponential backoff, and block detection.
+
+---
+
+## Install
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+```
+
+---
+
+## Configuration
+
+Copy the example env file and edit as needed:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Default | Description |
+|---|---|---|
+| `DJINNI_BASE_URL` | `https://djinni.co` | Base URL for the Djinni site |
+| `SCRAPE_INTERVAL_MIN` | `60` | Minutes between scheduled scrapes |
+| `DJINNI_KEYWORDS` | `` (empty) | Comma-separated keywords to scrape; empty = all categories |
+| `MAX_PAGES` | `` (empty = unlimited) | Safety cap on pages fetched per keyword |
+| `REQUEST_DELAY_SEC` | `2.0` | Seconds to wait between HTTP requests (polite crawling) |
+| `DB_PATH` | `./liza.db` | Path to the SQLite database file |
+| `DJINNI_COOKIE` | `` (empty) | Optional `sessionid` cookie for a logged-in Djinni account; set this if anonymous requests are blocked |
+| `ENABLE_SCHEDULER` | `true` | Enable/disable the periodic background scraper |
+| `SCRAPE_ON_STARTUP` | `true` | Run a scrape immediately when the API starts |
+
+---
+
+## Run the API
+
+```bash
+.venv/bin/uvicorn liza.api.main:app --reload
+```
+
+The API starts on `http://localhost:8000` by default.
+
+---
+
+## Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Returns `{"status": "ok"}` |
+| `GET` | `/vacancies` | List vacancies with optional filters (see below) |
+| `GET` | `/vacancies/{id}` | Fetch a single vacancy by integer ID |
+| `POST` | `/scrape` | Trigger an immediate scrape; returns `{"inserted": N, "updated": M}` |
+| `GET` | `/stats` | Returns total count, breakdown by category, and last scrape time |
+
+### `/vacancies` query parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `keyword` | string | Filter by keyword / category |
+| `category` | string | Filter by category field |
+| `company` | string | Filter by company name (case-insensitive) |
+| `remote` | bool | Filter by remote work format |
+| `salary_min` | int | Only show vacancies with salary_min >= this value |
+| `q` | string | Full-text search across title, company, description |
+| `limit` | int | Page size (default 50, max 200) |
+| `offset` | int | Pagination offset (default 0) |
+
+---
+
+## Run Tests
+
+**Offline unit tests** (no network required):
+
+```bash
+.venv/bin/pytest -m "not network"
+```
+
+Expected: 19 tests pass.
+
+**Live integration test** (hits the real Djinni site):
+
+```bash
+.venv/bin/pytest -m network -v -s
+```
+
+This fetches one real page from `https://djinni.co/jobs/?primary_keyword=Python` and asserts vacancies are returned. Requires a working internet connection and ~5 seconds (due to the polite 2 s request delay).
+
+---
+
+## How It Works
+
+1. **JSON-LD parsing** — Djinni embeds `<script type="application/ld+json">` blocks with `JobPosting` Schema.org data on every jobs page. LIZA extracts these with BeautifulSoup and parses them as structured data — no brittle CSS class scraping.
+
+2. **APScheduler periodic refresh** — A background `AsyncIOScheduler` runs `scrape_job()` every `SCRAPE_INTERVAL_MIN` minutes. Calling `POST /scrape` triggers the same job on demand.
+
+3. **SQLite dedup by URL** — Each vacancy is identified by its canonical URL. On every scrape, existing rows are updated (`last_seen`, salary, etc.) and new URLs are inserted. `first_seen` is never overwritten.
+
+---
+
+## Known Limitations & Anti-Block
+
+Djinni may rate-limit or block anonymous scraping after several rapid requests. LIZA mitigates this with:
+
+- A configurable `REQUEST_DELAY_SEC` (default 2.0 s) between requests.
+- Exponential backoff on HTTP errors.
+- `BlockedError` detection — when a page returns a CAPTCHA / login wall, the scraper logs a warning and stops the current run cleanly.
+
+**Live test result (2026-06-17, anonymous, one page):** The request reached Djinni successfully and returned **15 Python vacancies** (e.g. "Senior Software Engineer (AdTech)" at Sigma Software, "Senior Backend (Python) Engineer" at Adaptiq). No block was triggered.
+
+**If you are blocked:** Set `DJINNI_COOKIE` in `.env` to the `sessionid` cookie value from a logged-in Djinni session. Anonymous scraping at polite rates generally works, but a logged-in session is more resilient.
+
+---
+
+## Project Structure
+
+```
+liza/
+  config.py        — pydantic-settings env config
+  models.py        — ParsedVacancy, VacancyRow, VacancyRead, VacancyList
+  scraper/
+    client.py      — async httpx client with delay, backoff, block detection
+    parser.py      — JSON-LD JobPosting extractor
+    djinni.py      — fetch_vacancies() / fetch_all() orchestration
+  storage/
+    repo.py        — SQLite upsert, list, stats via SQLModel
+  scheduler.py     — APScheduler integration
+  api/
+    main.py        — FastAPI app with lifespan
+tests/
+  test_parser.py   — offline parser unit tests (fixture HTML)
+  test_djinni.py   — scraper unit tests (transport mock)
+  test_repo.py     — storage unit tests (in-memory SQLite)
+  test_api.py      — API endpoint tests (TestClient)
+  test_live.py     — @pytest.mark.network live test (skipped by default)
+  ...
+```

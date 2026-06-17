@@ -95,7 +95,10 @@ def _location(loc) -> Optional[str]:
         return None
     addr = loc.get("address")
     if isinstance(addr, dict):
-        parts = [addr.get("addressLocality"), addr.get("addressCountry")]
+        locality = addr.get("addressLocality")
+        if isinstance(locality, list):
+            locality = locality[0] if locality else None
+        parts = [locality, addr.get("addressCountry")]
         joined = ", ".join(p for p in parts if p)
         return joined or None
     return None
