@@ -87,8 +87,10 @@ liza/
   `keywords`, `max_pages`, `request_delay_sec`, `db_path`, `user_agent`,
   `djinni_cookie` (optional). Single source of configuration.
 - **scraper/parser.py** — `parse_jobs_page(html: str) -> tuple[list[Vacancy], int]`.
-  Extracts JSON-LD `JobPosting` objects, returns vacancies + total pages.
-  Pure function, no network/DB. The durable core; unit-tested against a fixture.
+  Uses BeautifulSoup/lxml only to locate the `<script type="application/ld+json">`
+  tags, then parses their JSON to extract `JobPosting` objects; returns vacancies
+  + total pages. No CSS-class scraping. Pure function, no network/DB. The durable
+  core; unit-tested against a fixture.
 - **scraper/client.py** — async httpx wrapper: realistic User-Agent, configurable
   delay, exponential backoff on 429/5xx, raises a typed `BlockedError` on
   403/429-after-retries, optional cookie injection.
@@ -111,9 +113,13 @@ liza/
 | `url` | str, unique | natural key for dedup |
 | `title` | str | |
 | `company` | str \| null | JSON-LD `hiringOrganization.name` |
-| `salary_min` | int \| null | JSON-LD `baseSalary` |
-| `salary_max` | int \| null | |
-| `salary_currency` | str \| null | |
+| `salary_min` | int \| null | JSON-LD `baseSalary.value.minValue` |
+| `salary_max` | int \| null | JSON-LD `baseSalary.value.maxValue` |
+| `salary_currency` | str \| null | JSON-LD `baseSalary.currency` |
+
+> **Salary extraction rule:** if `baseSalary.value` is a range, use `minValue`/
+> `maxValue`; if it is a single scalar `value`, set both `salary_min` and
+> `salary_max` to that value; if absent, leave all three null.
 | `category` | str \| null | primary keyword used / inferred |
 | `work_format` | str \| null | remote / office / hybrid (from `jobLocationType`/`employmentType` where available) |
 | `location` | str \| null | city/country text |
@@ -147,7 +153,7 @@ SQLite ⇄ FastAPI  GET /vacancies         api/main.py
 | GET | `/vacancies` | filters: `keyword`, `category`, `company`, `remote`, `salary_min`, `q` (title contains), `limit` (default 50, max 200), `offset`; returns `{items: [...], total: N}` |
 | GET | `/vacancies/{id}` | single vacancy or 404 |
 | POST | `/scrape` | trigger a scrape now; returns `{inserted, updated}` |
-| GET | `/stats` | counts (total, by category, last scrape time) |
+| GET | `/stats` | counts (total, by category, last scrape time); rows with null `category` grouped under `"uncategorized"` |
 
 ## 8. Error Handling
 
