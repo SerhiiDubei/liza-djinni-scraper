@@ -1,0 +1,106 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import List, Optional, Tuple
+
+from sqlalchemy import func
+from sqlmodel import Session, SQLModel, create_engine, select
+
+from ..config import settings
+from ..models import ParsedVacancy, Vacancy
+
+_engine = None
+
+# Fields copied from a ParsedVacancy onto an existing row on update.
+_UPDATABLE = (
+    "title", "company", "salary_min", "salary_max", "salary_currency",
+    "category", "work_format", "location", "posted_date", "description", "raw_json",
+)
+
+
+def configure(db_path: str) -> None:
+    """Point the repo at a specific SQLite file (used by tests)."""
+    global _engine
+    _engine = create_engine(f"sqlite:///{db_path}",
+                            connect_args={"check_same_thread": False})
+
+
+def get_engine():
+    global _engine
+    if _engine is None:
+        configure(settings.db_path)
+    return _engine
+
+
+def init_db() -> None:
+    SQLModel.metadata.create_all(get_engine())
+
+
+def upsert_vacancies(parsed: List[ParsedVacancy]) -> Tuple[int, int]:
+    inserted = updated = 0
+    now = datetime.utcnow()
+    with Session(get_engine()) as session:
+        for p in parsed:
+            existing = session.scalars(
+                select(Vacancy).where(Vacancy.url == p.url)
+            ).first()
+            if existing:
+                for field in _UPDATABLE:
+                    new_value = getattr(p, field)
+                    if new_value is not None:   # never clobber with None
+                        setattr(existing, field, new_value)
+                existing.last_seen = now
+                session.add(existing)
+                updated += 1
+            else:
+                session.add(Vacancy(**p.model_dump(), first_seen=now, last_seen=now))
+                inserted += 1
+        session.commit()
+    return inserted, updated
+
+
+def list_vacancies(
+    keyword: Optional[str] = None,
+    category: Optional[str] = None,
+    company: Optional[str] = None,
+    remote: Optional[bool] = None,
+    salary_min: Optional[int] = None,
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Tuple[List[Vacancy], int]:
+    with Session(get_engine()) as session:
+        stmt = select(Vacancy)
+        if category:
+            stmt = stmt.where(Vacancy.category == category)
+        if company:
+            stmt = stmt.where(Vacancy.company == company)
+        if remote is True:
+            stmt = stmt.where(Vacancy.work_format == "remote")
+        if salary_min is not None:
+            stmt = stmt.where(Vacancy.salary_max >= salary_min)
+        if q:
+            stmt = stmt.where(func.lower(Vacancy.title).contains(q.lower()))
+        if keyword:
+            stmt = stmt.where(func.lower(Vacancy.title).contains(keyword.lower()))
+        total = len(session.scalars(stmt).all())
+        rows = session.scalars(
+            stmt.order_by(Vacancy.last_seen.desc()).limit(limit).offset(offset)
+        ).all()
+    return list(rows), total
+
+
+def get_vacancy(vacancy_id: int) -> Optional[Vacancy]:
+    with Session(get_engine()) as session:
+        return session.get(Vacancy, vacancy_id)
+
+
+def stats() -> dict:
+    with Session(get_engine()) as session:
+        total = len(session.scalars(select(Vacancy)).all())
+        rows = session.execute(
+            select(Vacancy.category, func.count()).group_by(Vacancy.category)
+        ).all()
+        by_category = {(c or "uncategorized"): n for c, n in rows}
+        last = session.scalar(select(func.max(Vacancy.last_seen)))
+    return {"total": total, "by_category": by_category, "last_scrape": last}
