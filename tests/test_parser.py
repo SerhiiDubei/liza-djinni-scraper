@@ -46,3 +46,17 @@ def test_jobposting_with_type_as_list_is_parsed():
     vacancies, _ = parse_jobs_page(html)
     assert len(vacancies) == 1
     assert vacancies[0].title == "Listy Dev"
+
+
+def test_location_handles_list_valued_address_fields():
+    html = (
+        '<html><body><script type="application/ld+json">'
+        '{"@type":"JobPosting","title":"Dev","url":"https://djinni.co/jobs/55/",'
+        '"jobLocation":{"@type":"Place","address":{"@type":"PostalAddress",'
+        '"addressLocality":["Kyiv"],"addressCountry":["UA"]}}}'
+        '</script></body></html>'
+    )
+    from liza.scraper.parser import parse_jobs_page
+    vacancies, _ = parse_jobs_page(html)
+    assert len(vacancies) == 1
+    assert vacancies[0].location == "Kyiv, UA"
