@@ -38,8 +38,12 @@ def _iter_jobpostings(data) -> Iterator[dict]:
     elif isinstance(data, dict):
         if "@graph" in data:
             yield from _iter_jobpostings(data["@graph"])
-        elif data.get("@type") == "JobPosting":
-            yield data
+        else:
+            types = data.get("@type")
+            if types == "JobPosting" or (
+                isinstance(types, list) and "JobPosting" in types
+            ):
+                yield data
 
 
 def _to_vacancy(jp: dict) -> ParsedVacancy:

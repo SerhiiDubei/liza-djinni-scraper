@@ -33,3 +33,16 @@ def test_empty_page_returns_no_vacancies_and_one_page():
     vacancies, total_pages = parse_jobs_page("<html><body>No jobs</body></html>")
     assert vacancies == []
     assert total_pages == 1
+
+
+def test_jobposting_with_type_as_list_is_parsed():
+    html = (
+        '<html><body><script type="application/ld+json">'
+        '{"@type": ["JobPosting", "Thing"], "title": "Listy Dev",'
+        ' "url": "https://djinni.co/jobs/789/"}'
+        '</script></body></html>'
+    )
+    from liza.scraper.parser import parse_jobs_page
+    vacancies, _ = parse_jobs_page(html)
+    assert len(vacancies) == 1
+    assert vacancies[0].title == "Listy Dev"
