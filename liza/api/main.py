@@ -31,7 +31,6 @@ def health() -> dict:
 
 @app.get("/vacancies", response_model=VacancyList)
 def list_vacancies(
-    keyword: Optional[str] = None,
     category: Optional[str] = None,
     company: Optional[str] = None,
     remote: Optional[bool] = None,
@@ -41,7 +40,7 @@ def list_vacancies(
     offset: int = Query(0, ge=0),
 ) -> VacancyList:
     rows, total = repo.list_vacancies(
-        keyword=keyword, category=category, company=company, remote=remote,
+        category=category, company=company, remote=remote,
         salary_min=salary_min, q=q, limit=limit, offset=offset,
     )
     return VacancyList(items=[VacancyRead.model_validate(r) for r in rows], total=total)

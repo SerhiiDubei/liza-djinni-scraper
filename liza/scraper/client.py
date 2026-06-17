@@ -12,6 +12,10 @@ class BlockedError(Exception):
     """Raised when Djinni blocks the scraper (HTTP 403/429 after retries)."""
 
 
+class ScrapeError(Exception):
+    """Raised when a page could not be fetched after retries (non-block failure)."""
+
+
 class DjinniClient:
     def __init__(
         self,
@@ -54,17 +58,19 @@ class DjinniClient:
                 continue
             if resp.status_code in (403, 429):
                 last = BlockedError(f"HTTP {resp.status_code} from {path}")
-                await asyncio.sleep(self.delay * attempt)
+                if attempt < self.max_retries:
+                    await asyncio.sleep(self.delay * attempt)
                 continue
             if resp.status_code >= 500:
                 last = httpx.HTTPStatusError("server error", request=resp.request,
                                              response=resp)
-                await asyncio.sleep(self.delay * attempt)
+                if attempt < self.max_retries:
+                    await asyncio.sleep(self.delay * attempt)
                 continue
             resp.raise_for_status()
             return resp.text
         if isinstance(last, BlockedError):
             raise last
-        raise BlockedError(
+        raise ScrapeError(
             f"Failed to GET {path} after {self.max_retries} attempts: {last}"
         )

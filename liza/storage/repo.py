@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import event, func
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from ..config import settings
@@ -21,8 +21,17 @@ _UPDATABLE = (
 def configure(db_path: str) -> None:
     """Point the repo at a specific SQLite file (used by tests)."""
     global _engine
-    _engine = create_engine(f"sqlite:///{db_path}",
-                            connect_args={"check_same_thread": False})
+    _engine = create_engine(
+        f"sqlite:///{db_path}",
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+
+    @event.listens_for(_engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, _rec):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=5000")
+        cur.close()
 
 
 def get_engine():
@@ -60,7 +69,6 @@ def upsert_vacancies(parsed: List[ParsedVacancy]) -> Tuple[int, int]:
 
 
 def list_vacancies(
-    keyword: Optional[str] = None,
     category: Optional[str] = None,
     company: Optional[str] = None,
     remote: Optional[bool] = None,
@@ -81,8 +89,6 @@ def list_vacancies(
             stmt = stmt.where(Vacancy.salary_max >= salary_min)
         if q:
             stmt = stmt.where(func.lower(Vacancy.title).contains(q.lower()))
-        if keyword:
-            stmt = stmt.where(func.lower(Vacancy.title).contains(keyword.lower()))
         total = len(session.scalars(stmt).all())
         rows = session.scalars(
             stmt.order_by(Vacancy.last_seen.desc()).limit(limit).offset(offset)

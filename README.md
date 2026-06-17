@@ -71,12 +71,11 @@ The API starts on `http://localhost:8000` by default.
 
 | Parameter | Type | Description |
 |---|---|---|
-| `keyword` | string | Filter by keyword / category |
-| `category` | string | Filter by category field |
-| `company` | string | Filter by company name (case-insensitive) |
+| `category` | string | Filter by category field (exact match) |
+| `company` | string | Filter by company name (exact match) |
 | `remote` | bool | Filter by remote work format |
-| `salary_min` | int | Only show vacancies with salary_min >= this value |
-| `q` | string | Full-text search across title, company, description |
+| `salary_min` | int | Returns vacancies whose stated maximum salary is ≥ this value; vacancies without a stated salary are excluded |
+| `q` | string | Case-insensitive title search (contains match) |
 | `limit` | int | Page size (default 50, max 200) |
 | `offset` | int | Pagination offset (default 0) |
 
@@ -90,7 +89,7 @@ The API starts on `http://localhost:8000` by default.
 .venv/bin/pytest -m "not network"
 ```
 
-Expected: 19 tests pass.
+Expected: 23 tests pass.
 
 **Live integration test** (hits the real Djinni site):
 

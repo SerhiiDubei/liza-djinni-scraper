@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from .config import settings
-from .scraper.client import BlockedError
+from .scraper.client import BlockedError, ScrapeError
 from .scraper.djinni import fetch_all
 from .storage.repo import upsert_vacancies
 
@@ -20,6 +20,9 @@ async def scrape_job() -> Tuple[int, int]:
         parsed = await fetch_all(settings.keywords_list)
     except BlockedError as err:
         logger.warning("Scrape aborted (blocked): %s — consider setting DJINNI_COOKIE", err)
+        return (0, 0)
+    except ScrapeError as err:
+        logger.warning("Scrape failed (transient): %s", err)
         return (0, 0)
     inserted, updated = upsert_vacancies(parsed)
     logger.info("Scrape done: %d new, %d updated", inserted, updated)

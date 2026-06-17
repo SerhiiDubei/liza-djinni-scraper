@@ -45,3 +45,21 @@ def test_get_one_and_404(client):
     vid = listed[0]["id"]
     assert client.get(f"/vacancies/{vid}").status_code == 200
     assert client.get("/vacancies/999999").status_code == 404
+
+
+def test_stats(client):
+    body = client.get("/stats").json()
+    assert body["total"] == 2
+    assert body["by_category"].get("Python") == 1
+    assert body["by_category"].get("QA") == 1
+
+
+def test_scrape_endpoint_uses_scrape_job(client, monkeypatch):
+    import liza.api.main as main
+
+    async def fake_scrape_job():
+        return (3, 1)
+
+    monkeypatch.setattr(main, "scrape_job", fake_scrape_job)
+    body = client.post("/scrape").json()
+    assert body == {"inserted": 3, "updated": 1}

@@ -17,6 +17,14 @@ async def test_get_raises_blocked_on_429():
             await c.get("/jobs/")
 
 
+async def test_get_raises_scrape_error_on_server_error():
+    from liza.scraper.client import ScrapeError
+    transport = httpx.MockTransport(lambda req: httpx.Response(503, text="down"))
+    async with DjinniClient(delay=0, max_retries=2, transport=transport) as c:
+        with pytest.raises(ScrapeError):
+            await c.get("/jobs/")
+
+
 async def test_get_sends_user_agent_and_cookie():
     seen = {}
 
