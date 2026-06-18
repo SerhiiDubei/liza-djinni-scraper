@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 
 from ..config import settings
 from ..models import VacancyList, VacancyRead
-from ..scheduler import scrape_job, shutdown_scheduler, start_scheduler
+from .. import scheduler
 from ..storage import repo
 
 
@@ -17,10 +17,10 @@ from ..storage import repo
 async def lifespan(app: FastAPI):
     repo.init_db()
     if settings.scrape_on_startup:
-        await scrape_job()
-    start_scheduler()
+        scheduler.trigger_scrape(full=False)
+    scheduler.start_scheduler()
     yield
-    shutdown_scheduler()
+    scheduler.shutdown_scheduler()
 
 
 app = FastAPI(title="LIZA — Djinni vacancies API", lifespan=lifespan)
@@ -65,11 +65,15 @@ def get_vacancy(vacancy_id: int) -> VacancyRead:
 
 
 @app.post("/scrape")
-async def scrape_now() -> dict:
-    inserted, updated = await scrape_job()
-    return {"inserted": inserted, "updated": updated}
+async def scrape_now(full: bool = False) -> dict:
+    started = scheduler.trigger_scrape(full)
+    return {"status": "started" if started else "already_running", "full": full}
 
 
 @app.get("/stats")
 def stats() -> dict:
-    return repo.stats()
+    s = repo.stats()
+    status = scheduler.scrape_status()
+    s["scraping"] = status["in_progress"]
+    s["last_result"] = status["last_result"]
+    return s

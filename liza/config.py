@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     scrape_interval_min: int = 60
     djinni_keywords: str = ""           # CSV; empty = all categories
     max_pages: Optional[int] = None     # safety cap; None = until last page
+    incremental_pages: int = 3   # pages scraped on routine/incremental refresh
     request_delay_sec: float = 2.0
     db_path: str = "./liza.db"
     djinni_cookie: str = ""             # optional sessionid; empty = anonymous

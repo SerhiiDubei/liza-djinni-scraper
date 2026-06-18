@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import AsyncIterator, Dict, List, Optional
 
 import httpx
 
@@ -10,13 +10,16 @@ from .client import DjinniClient
 from .parser import parse_jobs_page
 
 
-async def fetch_vacancies(
+async def iter_pages(
     keyword: Optional[str] = None,
     max_pages: Optional[int] = None,
     transport: Optional[httpx.BaseTransport] = None,
-) -> List[ParsedVacancy]:
+) -> AsyncIterator[List[ParsedVacancy]]:
+    """Yield one list of ParsedVacancy per catalog page until exhausted/capped.
+
+    Raises BlockedError/ScrapeError from the client on failure (caller handles).
+    """
     cap = max_pages if max_pages is not None else settings.max_pages
-    results: Dict[str, ParsedVacancy] = {}
     async with DjinniClient(transport=transport) as client:
         page = 1
         while True:
@@ -26,16 +29,28 @@ async def fetch_vacancies(
             html = await client.get("/jobs/", params=params)
             vacancies, total_pages = parse_jobs_page(html)
             if not vacancies:
-                break
-            for v in vacancies:
-                if keyword and not v.category:
-                    v.category = keyword
-                if v.url:
-                    results[v.url] = v
+                return
+            if keyword:
+                for v in vacancies:
+                    if not v.category:
+                        v.category = keyword
+            yield vacancies
             limit = min(cap, total_pages) if cap else total_pages
             if page >= limit:
-                break
+                return
             page += 1
+
+
+async def fetch_vacancies(
+    keyword: Optional[str] = None,
+    max_pages: Optional[int] = None,
+    transport: Optional[httpx.BaseTransport] = None,
+) -> List[ParsedVacancy]:
+    results: Dict[str, ParsedVacancy] = {}
+    async for page_vacs in iter_pages(keyword, max_pages, transport):
+        for v in page_vacs:
+            if v.url:
+                results[v.url] = v
     return list(results.values())
 
 

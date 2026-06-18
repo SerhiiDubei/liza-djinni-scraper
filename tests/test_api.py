@@ -54,15 +54,24 @@ def test_stats(client):
     assert body["by_category"].get("QA") == 1
 
 
-def test_scrape_endpoint_uses_scrape_job(client, monkeypatch):
-    import liza.api.main as main
+def test_scrape_endpoint_triggers_background(client, monkeypatch):
+    import liza.scheduler as scheduler
+    calls = {}
 
-    async def fake_scrape_job():
-        return (3, 1)
+    def fake_trigger(full=False):
+        calls["full"] = full
+        return True
 
-    monkeypatch.setattr(main, "scrape_job", fake_scrape_job)
-    body = client.post("/scrape").json()
-    assert body == {"inserted": 3, "updated": 1}
+    monkeypatch.setattr(scheduler, "trigger_scrape", fake_trigger)
+    body = client.post("/scrape?full=true").json()
+    assert body["status"] == "started"
+    assert calls["full"] is True
+
+
+def test_stats_has_scraping_flag(client):
+    body = client.get("/stats").json()
+    assert body["total"] == 2
+    assert "scraping" in body
 
 
 def test_dashboard_served_at_root(client):

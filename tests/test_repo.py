@@ -1,3 +1,5 @@
+from datetime import date
+
 from liza.models import ParsedVacancy
 from liza.storage import repo
 
@@ -38,3 +40,15 @@ def test_list_vacancies_filters(tmp_path):
     rows, _ = repo.list_vacancies()
     assert repo.get_vacancy(rows[0].id) is not None
     assert repo.get_vacancy(999999) is None
+
+
+def test_list_sorted_by_posted_date_newest_first(tmp_path):
+    _setup(tmp_path)
+    # All upserted in ONE call -> identical last_seen (the old bug's trigger).
+    repo.upsert_vacancies([
+        ParsedVacancy(url="old", title="Old", posted_date=date(2026, 6, 10)),
+        ParsedVacancy(url="new", title="New", posted_date=date(2026, 6, 15)),
+        ParsedVacancy(url="mid", title="Mid", posted_date=date(2026, 6, 12)),
+    ])
+    rows, _ = repo.list_vacancies()
+    assert [r.url for r in rows] == ["new", "mid", "old"]

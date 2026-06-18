@@ -91,7 +91,7 @@ def list_vacancies(
             stmt = stmt.where(func.lower(Vacancy.title).contains(q.lower()))
         total = len(session.scalars(stmt).all())
         rows = session.scalars(
-            stmt.order_by(Vacancy.last_seen.desc()).limit(limit).offset(offset)
+            stmt.order_by(Vacancy.posted_date.desc(), Vacancy.id.desc()).limit(limit).offset(offset)
         ).all()
     return list(rows), total
 

@@ -67,6 +67,7 @@
     <span class="chip">Останній скрейп: <b id="st-last">…</b></span>
     <span class="spacer"></span>
     <button id="btn-scrape">Оновити зараз</button>
+    <button id="btn-scrape-full">Повний скрейп</button>
     <button id="btn-reload" class="ghost">Перезавантажити</button>
   </div>
 </header>
@@ -225,20 +226,59 @@ document.getElementById("f-limit").onchange = applyFilters;
 document.getElementById("p-prev").onclick = () => { state.offset = Math.max(0, state.offset - state.limit); load(); };
 document.getElementById("p-next").onclick = () => { state.offset += state.limit; load(); };
 document.getElementById("btn-reload").onclick = () => { loadStats(); load(); };
-document.getElementById("btn-scrape").onclick = async (e) => {
-  const btn = e.target; const old = btn.textContent;
-  btn.disabled = true; btn.textContent = "Скрейплю…";
-  try {
-    const r = await fetch("/scrape", { method: "POST" });
-    const res = await r.json();
-    btn.textContent = "+" + res.inserted + " нових, " + res.updated + " оновл.";
-    await loadStats(); await load();
-  } catch (err) {
-    btn.textContent = "Помилка";
-  } finally {
-    setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 2500);
+const SCRAPE_BTNS = [
+  { id: "btn-scrape",      label: "Оновити зараз", url: "/scrape" },
+  { id: "btn-scrape-full", label: "Повний скрейп",  url: "/scrape?full=true" },
+];
+
+let _pollTimer = null;
+let _pollCount = 0;
+
+function stopPolling() {
+  if (_pollTimer !== null) { clearInterval(_pollTimer); _pollTimer = null; }
+}
+
+function setScrapeButtonsDisabled(disabled) {
+  for (const b of SCRAPE_BTNS) {
+    const el = document.getElementById(b.id);
+    el.disabled = disabled;
+    el.textContent = disabled ? "Скрейплю…" : b.label;
   }
-};
+}
+
+async function startPolling() {
+  stopPolling();
+  _pollCount = 0;
+  setScrapeButtonsDisabled(true);
+  _pollTimer = setInterval(async () => {
+    _pollCount++;
+    if (_pollCount > 60) { stopPolling(); setScrapeButtonsDisabled(false); return; }
+    try {
+      const r = await fetch("/stats");
+      const s = await r.json();
+      document.getElementById("st-total").textContent = s.total;
+      document.getElementById("st-last").textContent = fmtTime(s.last_scrape);
+      if (!s.scraping) {
+        stopPolling();
+        setScrapeButtonsDisabled(false);
+        await load();
+      }
+    } catch (e) { /* ignore transient errors, keep polling */ }
+  }, 3000);
+}
+
+async function triggerScrape(url) {
+  try {
+    const r = await fetch(url, { method: "POST" });
+    const res = await r.json();
+    if (res.status === "started" || res.status === "already_running") {
+      startPolling();
+    }
+  } catch (err) { /* ignore */ }
+}
+
+document.getElementById("btn-scrape").onclick = () => triggerScrape("/scrape");
+document.getElementById("btn-scrape-full").onclick = () => triggerScrape("/scrape?full=true");
 
 loadStats();
 load();
