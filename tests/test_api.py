@@ -63,3 +63,10 @@ def test_scrape_endpoint_uses_scrape_job(client, monkeypatch):
     monkeypatch.setattr(main, "scrape_job", fake_scrape_job)
     body = client.post("/scrape").json()
     assert body == {"inserted": 3, "updated": 1}
+
+
+def test_dashboard_served_at_root(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "LIZA" in r.text and "дашборд" in r.text

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
 
 from ..config import settings
 from ..models import VacancyList, VacancyRead
@@ -22,6 +24,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="LIZA — Djinni vacancies API", lifespan=lifespan)
+
+_STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
+
+
+@app.get("/", include_in_schema=False)
+def dashboard() -> FileResponse:
+    """Serve the vacancies dashboard (static single-page UI)."""
+    return FileResponse(_STATIC_DIR / "index.html")
 
 
 @app.get("/health")

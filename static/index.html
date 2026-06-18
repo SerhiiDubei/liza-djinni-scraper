@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LIZA — вакансії Djinni</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --line: #2a2f3a;
+    --text: #e6e9ef; --muted: #9aa3b2; --accent: #5b8cff; --accent2: #1f6feb;
+    --good: #2ea043; --chip: #232834;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  }
+  header { padding: 18px 22px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: .2px; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+  .chip {
+    background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: 4px 11px; font-size: 12px; color: var(--muted);
+  }
+  .chip b { color: var(--text); }
+  .spacer { flex: 1; }
+  button {
+    background: var(--accent2); color: #fff; border: 0; border-radius: 8px;
+    padding: 7px 13px; font-size: 13px; cursor: pointer; font-weight: 500;
+  }
+  button:hover { background: var(--accent); }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+  button.ghost:hover { background: var(--panel2); }
+  button:disabled { opacity: .5; cursor: default; }
+  main { padding: 16px 22px 40px; }
+  .filters {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px; margin-bottom: 14px;
+  }
+  input[type=text], input[type=number], select {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 10px; font-size: 13px;
+  }
+  input[type=text] { min-width: 220px; }
+  label.cb { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--bg); }
+  tr:hover td { background: var(--panel); }
+  td a { color: var(--accent); text-decoration: none; }
+  td a:hover { text-decoration: underline; }
+  .badge { background: rgba(46,160,67,.15); color: #7ee2a0; border: 1px solid rgba(46,160,67,.35);
+    border-radius: 6px; padding: 1px 7px; font-size: 11px; }
+  .muted { color: var(--muted); }
+  .co { color: var(--text); }
+  .pager { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+  .state { padding: 30px; text-align: center; color: var(--muted); }
+  .err { color: #ff7b72; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LIZA — вакансії Djinni <span class="muted">· дашборд</span></h1>
+  <div class="chips">
+    <span class="chip">Усього: <b id="st-total">…</b></span>
+    <span class="chip">Останній скрейп: <b id="st-last">…</b></span>
+    <span class="spacer"></span>
+    <button id="btn-scrape">Оновити зараз</button>
+    <button id="btn-reload" class="ghost">Перезавантажити</button>
+  </div>
+</header>
+
+<main>
+  <div class="filters">
+    <input type="text" id="f-q" placeholder="Пошук за назвою…">
+    <label class="cb"><input type="checkbox" id="f-remote"> лише remote</label>
+    <input type="number" id="f-salary" placeholder="зарплата від" min="0" step="500" style="width:140px">
+    <select id="f-limit">
+      <option value="25">25 / стор.</option>
+      <option value="50" selected>50 / стор.</option>
+      <option value="100">100 / стор.</option>
+      <option value="200">200 / стор.</option>
+    </select>
+    <button id="f-apply" class="ghost">Застосувати</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Назва</th><th>Компанія</th><th>Формат</th><th>Локація</th>
+        <th>Зарплата</th><th>Опубліковано</th><th>Вперше побачено</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div id="state" class="state">Завантаження…</div>
+
+  <div class="pager">
+    <button id="p-prev" class="ghost">‹ Назад</button>
+    <span id="p-label" class="muted">—</span>
+    <button id="p-next" class="ghost">Далі ›</button>
+  </div>
+</main>
+
+<script>
+const state = { offset: 0, limit: 50, total: 0 };
+
+function fmtTime(s) {
+  if (!s) return "—";
+  // API returns naive UTC timestamps; treat as UTC, render in local tz.
+  const iso = /[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s + "Z";
+  const d = new Date(iso);
+  return isNaN(d) ? s : d.toLocaleString();
+}
+function salaryText(v) {
+  if (v.salary_min == null && v.salary_max == null) return null;
+  const cur = v.salary_currency || "";
+  if (v.salary_min != null && v.salary_max != null && v.salary_min !== v.salary_max)
+    return (v.salary_min + "–" + v.salary_max + " " + cur).trim();
+  return (((v.salary_min != null) ? v.salary_min : v.salary_max) + " " + cur).trim();
+}
+function dash() { const s = document.createElement("span"); s.className = "muted"; s.textContent = "—"; return s; }
+function cellText(text, cls) {
+  const td = document.createElement("td");
+  if (cls) td.className = cls;
+  if (text) td.textContent = text; else td.appendChild(dash());
+  return td;
+}
+
+function renderRows(items) {
+  const rows = document.getElementById("rows");
+  rows.replaceChildren();
+  for (const v of items) {
+    const tr = document.createElement("tr");
+
+    const tdTitle = document.createElement("td");
+    const a = document.createElement("a");
+    a.href = (v.url && /^https?:\/\//.test(v.url)) ? v.url : "#";
+    a.target = "_blank"; a.rel = "noopener";
+    a.textContent = v.title || "—";
+    if (v.description) a.title = String(v.description).slice(0, 300);
+    tdTitle.appendChild(a);
+    tr.appendChild(tdTitle);
+
+    tr.appendChild(cellText(v.company, "co"));
+
+    const tdFmt = document.createElement("td");
+    if (v.work_format === "remote") {
+      const b = document.createElement("span"); b.className = "badge"; b.textContent = "remote";
+      tdFmt.appendChild(b);
+    } else { tdFmt.appendChild(dash()); }
+    tr.appendChild(tdFmt);
+
+    tr.appendChild(cellText(v.location));
+
+    const tdSal = document.createElement("td");
+    const sal = salaryText(v);
+    if (sal) tdSal.textContent = sal; else tdSal.appendChild(dash());
+    tr.appendChild(tdSal);
+
+    tr.appendChild(cellText(v.posted_date, "muted"));
+    tr.appendChild(cellText(fmtTime(v.first_seen), "muted"));
+
+    rows.appendChild(tr);
+  }
+}
+
+function params() {
+  const p = new URLSearchParams();
+  p.set("limit", state.limit);
+  p.set("offset", state.offset);
+  const q = document.getElementById("f-q").value.trim();
+  const salary = document.getElementById("f-salary").value.trim();
+  if (q) p.set("q", q);
+  if (document.getElementById("f-remote").checked) p.set("remote", "true");
+  if (salary) p.set("salary_min", salary);
+  return p;
+}
+
+async function loadStats() {
+  try {
+    const r = await fetch("/stats"); const s = await r.json();
+    document.getElementById("st-total").textContent = s.total;
+    document.getElementById("st-last").textContent = fmtTime(s.last_scrape);
+  } catch (e) { /* non-fatal */ }
+}
+
+async function load() {
+  const stateEl = document.getElementById("state");
+  stateEl.textContent = "Завантаження…"; stateEl.className = "state";
+  document.getElementById("rows").replaceChildren();
+  try {
+    const r = await fetch("/vacancies?" + params().toString());
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const data = await r.json();
+    state.total = data.total;
+    if (!data.items.length) {
+      stateEl.textContent = "Нічого не знайдено за цими фільтрами.";
+    } else {
+      stateEl.textContent = "";
+      renderRows(data.items);
+    }
+    const from = state.total ? state.offset + 1 : 0;
+    const to = Math.min(state.offset + state.limit, state.total);
+    document.getElementById("p-label").textContent = from + "–" + to + " з " + state.total;
+    document.getElementById("p-prev").disabled = state.offset <= 0;
+    document.getElementById("p-next").disabled = to >= state.total;
+  } catch (e) {
+    stateEl.textContent = "Помилка завантаження: " + e.message;
+    stateEl.className = "state err";
+  }
+}
+
+function applyFilters() {
+  state.offset = 0;
+  state.limit = +document.getElementById("f-limit").value;
+  load();
+}
+
+document.getElementById("f-apply").onclick = applyFilters;
+document.getElementById("f-q").addEventListener("keydown", e => { if (e.key === "Enter") applyFilters(); });
+document.getElementById("f-remote").onchange = applyFilters;
+document.getElementById("f-limit").onchange = applyFilters;
+document.getElementById("p-prev").onclick = () => { state.offset = Math.max(0, state.offset - state.limit); load(); };
+document.getElementById("p-next").onclick = () => { state.offset += state.limit; load(); };
+document.getElementById("btn-reload").onclick = () => { loadStats(); load(); };
+document.getElementById("btn-scrape").onclick = async (e) => {
+  const btn = e.target; const old = btn.textContent;
+  btn.disabled = true; btn.textContent = "Скрейплю…";
+  try {
+    const r = await fetch("/scrape", { method: "POST" });
+    const res = await r.json();
+    btn.textContent = "+" + res.inserted + " нових, " + res.updated + " оновл.";
+    await loadStats(); await load();
+  } catch (err) {
+    btn.textContent = "Помилка";
+  } finally {
+    setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 2500);
+  }
+};
+
+loadStats();
+load();
+</script>
+</body>
+</html>
