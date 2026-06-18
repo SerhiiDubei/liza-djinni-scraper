@@ -70,3 +70,11 @@ def test_dashboard_served_at_root(client):
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
     assert "LIZA" in r.text and "дашборд" in r.text
+
+
+def test_timestamps_are_utc_marked(client):
+    item = client.get("/vacancies").json()["items"][0]
+    assert item["first_seen"].endswith("+00:00")
+    assert item["last_seen"].endswith("+00:00")
+    last = client.get("/stats").json()["last_scrape"]
+    assert last is not None and last.endswith("+00:00")

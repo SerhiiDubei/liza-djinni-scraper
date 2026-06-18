@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from sqlmodel import Field, SQLModel
 
 
@@ -51,6 +51,14 @@ class VacancyRead(BaseModel):
     last_seen: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("first_seen", "last_seen")
+    def _serialize_utc(self, value: datetime) -> str:
+        # Stored timestamps are UTC but tz-naive after the SQLite round-trip;
+        # mark them explicitly so the API emits unambiguous "+00:00" times.
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
 
 
 class VacancyList(BaseModel):

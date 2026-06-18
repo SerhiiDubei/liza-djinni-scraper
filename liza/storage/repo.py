@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
 from sqlalchemy import event, func
@@ -47,7 +47,7 @@ def init_db() -> None:
 
 def upsert_vacancies(parsed: List[ParsedVacancy]) -> Tuple[int, int]:
     inserted = updated = 0
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     with Session(get_engine()) as session:
         for p in parsed:
             existing = session.scalars(
@@ -109,4 +109,10 @@ def stats() -> dict:
         ).all()
         by_category = {(c or "uncategorized"): n for c, n in rows}
         last = session.scalar(select(func.max(Vacancy.last_seen)))
-    return {"total": total, "by_category": by_category, "last_scrape": last}
+    if last is not None and last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return {
+        "total": total,
+        "by_category": by_category,
+        "last_scrape": last.isoformat() if last is not None else None,
+    }
