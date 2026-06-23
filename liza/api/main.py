@@ -8,9 +8,13 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from ..config import settings
-from ..models import VacancyList, VacancyRead
+from ..models import CandidacyList, CandidateProfile, ProfileRead, VacancyList, VacancyRead
 from .. import scheduler
 from ..storage import repo
+from ..profiles import repo as profiles_repo
+from ..jobhunter import repo as jobhunter_repo
+from .. import jobhunter as _jh  # noqa: F401  (ensures package import)
+from ..jobhunter import pipeline as jobhunter_pipeline
 
 
 @asynccontextmanager
@@ -77,3 +81,44 @@ def stats() -> dict:
     s["scraping"] = status["in_progress"]
     s["last_result"] = status["last_result"]
     return s
+
+
+@app.post("/profiles", response_model=ProfileRead)
+def create_profile(profile: CandidateProfile) -> ProfileRead:
+    saved = profiles_repo.create_profile(profile)
+    return ProfileRead.model_validate(saved)
+
+
+@app.get("/profiles", response_model=list)
+def list_profiles() -> list:
+    return [ProfileRead.model_validate(p) for p in profiles_repo.list_profiles()]
+
+
+@app.get("/profiles/{profile_id}", response_model=ProfileRead)
+def get_profile(profile_id: int) -> ProfileRead:
+    p = profiles_repo.get_profile(profile_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return ProfileRead.model_validate(p)
+
+
+@app.post("/profiles/{profile_id}/run")
+async def run_match(profile_id: int, limit: Optional[int] = None) -> dict:
+    if profiles_repo.get_profile(profile_id) is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    started = jobhunter_pipeline.trigger_match(profile_id, limit)
+    return {"status": "started" if started else "already_running"}
+
+
+@app.get("/candidacies", response_model=CandidacyList)
+def list_candidacies(
+    profile: int,
+    status: Optional[str] = None,
+    min_score: Optional[int] = None,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> CandidacyList:
+    items, total = jobhunter_repo.list_candidacies(
+        profile_id=profile, status=status, min_score=min_score,
+        limit=limit, offset=offset)
+    return CandidacyList(items=items, total=total)
