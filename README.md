@@ -2,6 +2,8 @@
 
 LIZA is a self-hosted Python service that scrapes the public [Djinni](https://djinni.co) jobs catalog via Schema.org JSON-LD markup on a schedule, stores vacancies in SQLite with deduplication, and serves them over a FastAPI HTTP API.
 
+**Live:** dashboard + API at https://liza-production-8548.up.railway.app/ (deployed on Railway, auto-deploys on push to `main`).
+
 > **Note:** There is no official public Djinni read API. LIZA scrapes public pages. Respect Djinni's Terms of Service and keep request rates polite.
 
 ---
