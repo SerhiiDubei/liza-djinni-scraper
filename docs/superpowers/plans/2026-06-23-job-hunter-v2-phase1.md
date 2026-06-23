@@ -4,7 +4,7 @@
 
 **Goal:** On top of the existing LIZA service, add candidate **profiles** and an **LLM matcher** that scores each vacancy against a profile (resume + preferences), applies a **threshold**, and exposes a ranked **shortlist** via API + a dashboard tab.
 
-**Architecture:** Extend the LIZA FastAPI app + SQLite DB. New tables `candidate_profile` and `candidacy` (profile×vacancy). A cheap rule **pre-filter** runs before any LLM call; survivors are scored by an **OpenRouter** LLM (mockable async client) producing `{score, verdict, reasoning}`. A background **match pipeline** scores only vacancies not yet scored for that profile (score-once), guarded against overlap like the existing scraper.
+**Architecture:** Extend the LIZA FastAPI app + SQLite DB. New tables `candidate_profile` and `candidacy` (profile×vacancy). A cheap rule **pre-filter** runs before any LLM call; survivors are scored by an **OpenRouter** LLM (mockable async client) producing `{score, verdict, reasoning}`. A background **match pipeline** scores only vacancies not yet scored for that profile (score-once), guarded against overlap like the existing scraper. Stages talk through **contracts** — `typing.Protocol` interfaces (`LLM`, `Scorer`, `VacancySource`) plus a typed `MatchResult` — and the pipeline gets implementations via **dependency injection** (tests pass fakes; no monkeypatch of internals).
 
 **Tech Stack:** Python 3.9+, FastAPI, SQLModel, httpx (OpenRouter), pytest. LLM is **always mocked** in the offline suite; live calls need `OPENROUTER_API_KEY`.
 
@@ -20,17 +20,101 @@
 |---|---|
 | `liza/config.py` (modify) | add OpenRouter + matching settings |
 | `liza/models.py` (modify) | `CandidateProfile`, `Candidacy` tables + read schemas |
-| `liza/llm/client.py` (create) | async OpenRouter chat client (JSON), retries, mockable |
+| `liza/jobhunter/contracts.py` (create) | Protocols `LLM`/`Scorer`/`VacancySource` + `MatchResult` data contract |
+| `liza/llm/client.py` (create) | async OpenRouter chat client (JSON), retries — an `LLM` adapter |
 | `liza/profiles/repo.py` (create) | profile create/get/list |
 | `liza/matching/prefilter.py` (create) | cheap rule filter (exclude keywords/industries) |
-| `liza/matching/scorer.py` (create) | LLM scoring → `{score, verdict, reasoning}` |
+| `liza/matching/scorer.py` (create) | `build_prompt`/`normalize_score` + `LlmScorer` (implements `Scorer`, depends on `LLM`) |
 | `liza/jobhunter/repo.py` (create) | candidacy upsert/list/get; unique(profile,vacancy) |
-| `liza/jobhunter/pipeline.py` (create) | `run_match` background; prefilter→score→store; counts |
+| `liza/jobhunter/source.py` (create) | `DbVacancySource` (implements `VacancySource`) |
+| `liza/jobhunter/pipeline.py` (create) | `run_match(profile, *, source, scorer)` — DI; prefilter→score→store; guarded |
 | `liza/api/main.py` (modify) | profiles + run + candidacies endpoints |
 | `static/index.html` (modify) | a "Shortlist" tab over `/candidacies` |
 | `.env.example`, `README.md` (modify) | document `OPENROUTER_API_KEY` |
 
 **Scoring convention:** `score` is 0–100; `verdict` ∈ {`apply`,`consider`,`skip`}; threshold = `profile.min_score` (default 70). Prefiltered-out vacancies are stored as `status=skipped, score=0`. Every (profile,vacancy) gets exactly one `candidacy` row (score-once).
+
+---
+
+## Contracts & DI (applies to Tasks 5 & 8)
+
+Create `liza/jobhunter/__init__.py` (empty) and `liza/jobhunter/contracts.py`:
+```python
+from __future__ import annotations
+from typing import List, Optional, Protocol, runtime_checkable
+from pydantic import BaseModel
+from ..models import CandidateProfile, Vacancy
+
+
+class MatchResult(BaseModel):
+    score: int
+    verdict: str
+    reasoning: Optional[str] = None
+
+
+@runtime_checkable
+class LLM(Protocol):
+    async def complete_json(self, system: str, user: str) -> dict: ...
+
+
+@runtime_checkable
+class VacancySource(Protocol):
+    def unscored(self, profile_id: int, limit: int) -> List[Vacancy]: ...
+
+
+@runtime_checkable
+class Scorer(Protocol):
+    async def score(self, profile: CandidateProfile, vacancy: Vacancy) -> MatchResult: ...
+```
+- `liza/llm/client.py:LLMClient` already satisfies `LLM` (it has `complete_json`) — it is the production adapter; no change needed.
+- **Task 5** keeps the pure `build_prompt`/`normalize_score` functions AND adds an adapter implementing `Scorer`:
+```python
+class LlmScorer:
+    def __init__(self, llm) -> None:          # llm: contracts.LLM
+        self._llm = llm
+        self.model = getattr(llm, "model", None)
+
+    async def score(self, profile, vacancy):
+        from ..jobhunter.contracts import MatchResult
+        system, user = build_prompt(profile, vacancy)
+        raw = await self._llm.complete_json(system, user)
+        return MatchResult(**normalize_score(raw))
+```
+  Tests inject a `FakeLLM` (class with `async def complete_json(self, system, user)` returning a canned dict). **No monkeypatch.**
+- **Task 8** creates `liza/jobhunter/source.py`:
+```python
+class DbVacancySource:
+    def unscored(self, profile_id: int, limit: int):
+        from sqlmodel import Session
+        from ..models import Vacancy
+        from ..storage.repo import get_engine
+        from .repo import unscored_vacancy_ids
+        ids = unscored_vacancy_ids(profile_id, limit)
+        with Session(get_engine()) as session:
+            return [session.get(Vacancy, i) for i in ids]
+```
+  and `run_match` takes injected deps (default-wires production adapters):
+```python
+async def run_match(profile_id, limit=None, *, source=None, scorer=None) -> dict:
+    if _state["in_progress"]:
+        return {"skipped": True}
+    _state["in_progress"] = True
+    limit = limit or settings.match_default_limit
+    try:
+        profile = get_profile(profile_id)
+        if profile is None:
+            return {"error": "profile not found"}
+        source = source or DbVacancySource()
+        if scorer is None:
+            async with LLMClient() as llm:
+                return await _run(profile, limit, source, LlmScorer(llm))
+        return await _run(profile, limit, source, scorer)
+    finally:
+        _state["in_progress"] = False
+```
+  `_run(profile, limit, source, scorer)` loops `source.unscored(profile.id, limit)`, applies `prefilter_reason`, calls `await scorer.score(profile, vac)` (a `MatchResult`; read `.score`/`.verdict`/`.reasoning`), saves a `Candidacy`, returns `{scored, shortlisted, skipped}` and sets `_state["last_result"]`. Tests inject `DbVacancySource()` + a `FakeScorer` (class with `async def score(...)` returning a `MatchResult`). **No monkeypatch.** `trigger_match` and the API are unchanged (they use default wiring).
+
+The Task 5 / Task 8 bodies below show the pre-contracts version for reference; **follow this Contracts & DI section where they differ.**
 
 ---
 
