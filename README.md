@@ -126,7 +126,7 @@ The dashboard at `/` includes a **Job Hunter — Shortlist** tab where you can t
 .venv/bin/pytest -m "not network"
 ```
 
-Expected: 23 tests pass.
+Expected: all offline tests pass.
 
 **Live integration test** (hits the real Djinni site):
 
