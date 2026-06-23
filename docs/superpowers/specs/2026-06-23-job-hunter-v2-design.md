@@ -59,7 +59,8 @@ liza/
 **`candidate_profile`**
 | field | notes |
 |---|---|
-| id / slug | e.g. `serhii`, `sister` |
+| id | PK, int autoincrement |
+| slug | unique, human key, e.g. `serhii`, `sister` |
 | resume_md | full resume text |
 | skills_md | detailed skills (optional) |
 | preferences | JSON: `remote_only`, `exclude_industries[]` (e.g. gambling), `exclude_keywords[]`, `role_focus[]`, `min_score`, `language` (default `uk`) |
@@ -73,7 +74,7 @@ liza/
 | score | 0–100 (or 1–10) |
 | verdict | `apply` / `consider` / `skip` |
 | reasoning | one-paragraph why |
-| status | `scored` → `shortlisted` → `researching` → `research_done` → `letter_draft` → `letter_ready` → `applied` → `replied` → `interview` → `rejected` / `offer` |
+| status | `scored` → (`shortlisted` if ≥ threshold, else `skipped`) → `researching` → `research_done` → `letter_draft` → `letter_ready` → `applied` → `replied` → `interview` → `rejected` / `offer`. **Every scored (profile,vacancy) pair gets a row — including `skipped` — so we never re-score it.** `skipped` is terminal unless manually revived. |
 | research_md | company/product notes (required before a letter) |
 | cover_md | the cover letter |
 | scored_at / applied_at / updated_at | |
@@ -85,7 +86,7 @@ liza/
 1. **Pre-filter** (cheap, no LLM): drop vacancies violating hard rules (not remote, excluded industry/keyword). Rules from `profile.preferences`.
 2. **Score** (LLM, survivors only, only those not yet scored for this profile): feed the **full** vacancy (title + description/responsibilities + `raw_json`) and the profile resume/prefs → structured `{score, verdict, reasoning}`. Store a `candidacy`. *Title is ignored as the signal; responsibilities drive the score.*
 3. **Threshold**: `score >= profile.min_score` → `status=shortlisted`; else `skip`.
-4. **Research** (enforced): for each shortlisted, run `research_company` → `research_md`. Cover step refuses to run if research is missing.
+4. **Research** (enforced): for each shortlisted, run `research_company` → `research_md`. **Sources:** company name/URL + `raw_json` from the vacancy, fetch the company site (httpx/WebFetch), optional web search; if info is insufficient, flag rather than write shallow notes. Cover step refuses to run if research is missing.
 5. **Cover** (LLM): `composer` builds a letter from blocks using profile voice + research + match reasoning → `cover_md`, `status=letter_draft`.
 6. **Review**: quality checks; on pass → `letter_ready`.
 7. **(Human) Send** → mark `applied` (Phase 3, §8).
@@ -103,14 +104,14 @@ A **block library** (`cover/blocks.py`), each block a small instruction + exampl
 - `cta` (required) — one sentence.
 - `joke` / `greeting` / `product_praise` (optional flavor) — used sparingly.
 
-The composer **selects and combines** blocks per vacancy (some optional ones in/out, order/wording varies) so letters are not cookie-cutter. Hard rules carried over from job-hunter: grounded in real resume data only (never invent metrics; if data missing → flag), default language `uk`, minimize company names in the body, no "AI-slop" phrases. Length target carried as a single config value (resolves the old 150-vs-400-word inconsistency — **one** source of truth).
+The composer **selects and combines** blocks per vacancy (some optional ones in/out, order/wording varies) so letters are not cookie-cutter. Hard rules carried over from job-hunter: grounded in real resume data only (never invent metrics; if data missing → flag), default language `uk`, minimize company names in the body, no "AI-slop" phrases. Length carried as a single config value — **default target ~150 words, hard max 250** (one source of truth; resolves the old 150-vs-400 inconsistency); overridable per profile.
 
 ## 7. API (extends LIZA FastAPI)
 
 | Method | Path | Purpose |
 |---|---|---|
 | POST/GET | `/profiles`, `/profiles/{id}` | manage candidate profiles |
-| POST | `/profiles/{id}/run` | run the pipeline (background); returns counts |
+| POST | `/profiles/{id}/run` | start the pipeline in the **background** (same pattern as `/scrape`): returns `{status: started \| already_running}` immediately. Progress/counts read via `/stats`-style fields + `/candidacies`; an in-progress guard prevents overlap. |
 | GET | `/candidacies?profile=&status=&min_score=&limit=&offset=` | shortlist / funnel, sorted by score desc |
 | GET | `/candidacies/{id}` | full detail (score, reasoning, research, cover) |
 | POST | `/candidacies/{id}/research` | (re)run research |
