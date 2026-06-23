@@ -120,19 +120,28 @@
   </div>
 
   <section class="jh-section">
-    <h2>Job Hunter — Shortlist</h2>
+    <h2>Job Hunter — Вакансії</h2>
     <div class="jh-controls">
-      <label class="cb" style="color:var(--text)">Профіль ID:
-        <input type="number" id="jh-profile" value="1" min="1" style="width:80px">
+      <label class="cb" style="color:var(--text)">Профіль:
+        <select id="jh-profile" style="min-width:160px">
+          <option disabled>Завантаження…</option>
+        </select>
+      </label>
+      <label class="cb" style="color:var(--text)">Статус:
+        <select id="jh-status-filter">
+          <option value="shortlisted" selected>Шортліст</option>
+          <option value="all">Усі проаналізовані</option>
+        </select>
       </label>
       <button id="jh-run">Запустити метч</button>
-      <button id="jh-load" class="ghost">Завантажити шортліст</button>
+      <button id="jh-load" class="ghost">Завантажити</button>
       <span id="jh-status" class="jh-status"></span>
     </div>
+    <div id="jh-count" class="muted" style="font-size:12px;margin-bottom:8px;display:none"></div>
     <table id="jh-table" style="display:none">
       <thead>
         <tr>
-          <th>Score</th><th>Назва</th><th>Компанія</th><th>Вердикт</th><th>Причина</th>
+          <th>Score</th><th>Назва</th><th>Компанія</th><th>Вердикт</th><th>Стан</th><th>Причина</th>
         </tr>
       </thead>
       <tbody id="jh-rows"></tbody>
@@ -319,17 +328,50 @@ document.getElementById("btn-scrape-full").onclick = () => triggerScrape("/scrap
 
 loadStats();
 load();
+jhLoadProfiles();
 
 // ── Job Hunter shortlist ──────────────────────────────────────────────────────
 
 function jhProfileId() {
-  return document.getElementById("jh-profile").value.trim() || "1";
+  const sel = document.getElementById("jh-profile");
+  return sel.value || "";
 }
 
 function jhSetStatus(msg, isErr) {
   const el = document.getElementById("jh-status");
   el.textContent = msg;
   el.className = "jh-status" + (isErr ? " err" : "");
+}
+
+async function jhLoadProfiles() {
+  const sel = document.getElementById("jh-profile");
+  try {
+    const r = await fetch("/profiles");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const profiles = await r.json();
+    sel.replaceChildren();
+    if (!profiles.length) {
+      const opt = document.createElement("option");
+      opt.disabled = true;
+      opt.textContent = "немає профілів";
+      sel.appendChild(opt);
+    } else {
+      for (const p of profiles) {
+        const opt = document.createElement("option");
+        opt.value = String(p.id);
+        opt.textContent = "#" + p.id + " · " + p.slug;
+        sel.appendChild(opt);
+      }
+      // Select the last (newest) profile by default
+      sel.selectedIndex = sel.options.length - 1;
+    }
+  } catch (e) {
+    sel.replaceChildren();
+    const opt = document.createElement("option");
+    opt.disabled = true;
+    opt.textContent = "помилка завантаження профілів";
+    sel.appendChild(opt);
+  }
 }
 
 function jhRenderRows(items) {
@@ -358,8 +400,10 @@ function jhRenderRows(items) {
     tr.appendChild(cellText(c.company || null, "co"));
 
     // Вердикт
-    const verdict = c.verdict || c.status || null;
-    tr.appendChild(cellText(verdict));
+    tr.appendChild(cellText(c.verdict || null));
+
+    // Стан (status)
+    tr.appendChild(cellText(c.status || null));
 
     // Причина (reasoning)
     const tdReason = document.createElement("td");
@@ -374,25 +418,33 @@ function jhRenderRows(items) {
 
 async function jhLoadShortlist() {
   const id = jhProfileId();
+  const statusFilter = document.getElementById("jh-status-filter").value;
   const stateEl = document.getElementById("jh-state");
   const tableEl = document.getElementById("jh-table");
+  const countEl = document.getElementById("jh-count");
   stateEl.textContent = "Завантаження…";
   stateEl.style.display = "block";
   tableEl.style.display = "none";
+  countEl.style.display = "none";
   jhSetStatus("");
   try {
-    const r = await fetch("/candidacies?profile=" + encodeURIComponent(id) + "&status=shortlisted");
+    let url = "/candidacies?profile=" + encodeURIComponent(id) + "&limit=200";
+    if (statusFilter === "shortlisted") url += "&status=shortlisted";
+    const r = await fetch(url);
     if (!r.ok) throw new Error("HTTP " + r.status);
     const data = await r.json();
     const items = Array.isArray(data) ? data : (data.items || []);
+    const total = Array.isArray(data) ? data.length : (data.total != null ? data.total : items.length);
     if (!items.length) {
-      stateEl.textContent = "Шортліст порожній — запустіть метч або перевірте профіль.";
+      stateEl.textContent = "Список порожній — запустіть метч або змініть фільтр.";
       stateEl.style.display = "block";
       tableEl.style.display = "none";
     } else {
       jhRenderRows(items);
       stateEl.style.display = "none";
       tableEl.style.display = "table";
+      countEl.textContent = "Показано " + items.length + " із " + total;
+      countEl.style.display = "block";
     }
   } catch (e) {
     stateEl.textContent = "Помилка: " + e.message;
@@ -403,6 +455,7 @@ async function jhLoadShortlist() {
 }
 
 document.getElementById("jh-load").onclick = jhLoadShortlist;
+document.getElementById("jh-status-filter").onchange = jhLoadShortlist;
 
 let _jhPollTimer = null;
 let _jhPollCount = 0;
