@@ -57,6 +57,22 @@
   .pager { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
   .state { padding: 30px; text-align: center; color: var(--muted); }
   .err { color: #ff7b72; }
+  /* Job Hunter section */
+  .jh-section {
+    margin-top: 36px; border-top: 1px solid var(--line); padding-top: 24px;
+  }
+  .jh-section h2 { margin: 0 0 14px; font-size: 15px; font-weight: 600; color: var(--text); }
+  .jh-controls {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px; margin-bottom: 14px;
+  }
+  .jh-status { font-size: 13px; color: var(--muted); }
+  .score-badge {
+    display: inline-block; min-width: 34px; text-align: center;
+    background: rgba(91,140,255,.15); color: #8ab4ff; border: 1px solid rgba(91,140,255,.35);
+    border-radius: 6px; padding: 1px 6px; font-size: 12px; font-weight: 600;
+  }
 </style>
 </head>
 <body>
@@ -102,6 +118,27 @@
     <span id="p-label" class="muted">—</span>
     <button id="p-next" class="ghost">Далі ›</button>
   </div>
+
+  <section class="jh-section">
+    <h2>Job Hunter — Shortlist</h2>
+    <div class="jh-controls">
+      <label class="cb" style="color:var(--text)">Профіль ID:
+        <input type="number" id="jh-profile" value="1" min="1" style="width:80px">
+      </label>
+      <button id="jh-run">Запустити метч</button>
+      <button id="jh-load" class="ghost">Завантажити шортліст</button>
+      <span id="jh-status" class="jh-status"></span>
+    </div>
+    <table id="jh-table" style="display:none">
+      <thead>
+        <tr>
+          <th>Score</th><th>Назва</th><th>Компанія</th><th>Вердикт</th><th>Причина</th>
+        </tr>
+      </thead>
+      <tbody id="jh-rows"></tbody>
+    </table>
+    <div id="jh-state" class="state" style="display:none"></div>
+  </section>
 </main>
 
 <script>
@@ -282,6 +319,107 @@ document.getElementById("btn-scrape-full").onclick = () => triggerScrape("/scrap
 
 loadStats();
 load();
+
+// ── Job Hunter shortlist ──────────────────────────────────────────────────────
+
+function jhProfileId() {
+  return document.getElementById("jh-profile").value.trim() || "1";
+}
+
+function jhSetStatus(msg, isErr) {
+  const el = document.getElementById("jh-status");
+  el.textContent = msg;
+  el.className = "jh-status" + (isErr ? " err" : "");
+}
+
+function jhRenderRows(items) {
+  const tbody = document.getElementById("jh-rows");
+  tbody.replaceChildren();
+  for (const c of items) {
+    const tr = document.createElement("tr");
+
+    // Score
+    const tdScore = document.createElement("td");
+    const scoreBadge = document.createElement("span");
+    scoreBadge.className = "score-badge";
+    scoreBadge.textContent = c.score != null ? c.score : "—";
+    tdScore.appendChild(scoreBadge);
+    tr.appendChild(tdScore);
+
+    // Назва (link)
+    const tdTitle = document.createElement("td");
+    const v = c.vacancy || {};
+    if (v.url && v.title) {
+      const a = document.createElement("a");
+      a.href = /^https?:\/\//.test(v.url) ? v.url : "#";
+      a.target = "_blank"; a.rel = "noopener";
+      a.textContent = v.title;
+      tdTitle.appendChild(a);
+    } else {
+      tdTitle.textContent = v.title || "—";
+    }
+    tr.appendChild(tdTitle);
+
+    tr.appendChild(cellText(v.company || null, "co"));
+
+    // Вердикт
+    const verdict = c.verdict || c.status || null;
+    tr.appendChild(cellText(verdict));
+
+    // Причина (reasoning)
+    const tdReason = document.createElement("td");
+    tdReason.className = "muted";
+    tdReason.style.maxWidth = "420px";
+    tdReason.textContent = c.reasoning || c.reason || "";
+    tr.appendChild(tdReason);
+
+    tbody.appendChild(tr);
+  }
+}
+
+async function jhLoadShortlist() {
+  const id = jhProfileId();
+  const stateEl = document.getElementById("jh-state");
+  const tableEl = document.getElementById("jh-table");
+  stateEl.textContent = "Завантаження…";
+  stateEl.style.display = "block";
+  tableEl.style.display = "none";
+  jhSetStatus("");
+  try {
+    const r = await fetch("/candidacies?profile=" + encodeURIComponent(id) + "&status=shortlisted");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const data = await r.json();
+    const items = Array.isArray(data) ? data : (data.items || []);
+    if (!items.length) {
+      stateEl.textContent = "Шортліст порожній — запустіть метч або перевірте профіль.";
+      stateEl.style.display = "block";
+      tableEl.style.display = "none";
+    } else {
+      jhRenderRows(items);
+      stateEl.style.display = "none";
+      tableEl.style.display = "table";
+    }
+  } catch (e) {
+    stateEl.textContent = "Помилка: " + e.message;
+    stateEl.className = "state err";
+    stateEl.style.display = "block";
+    tableEl.style.display = "none";
+  }
+}
+
+document.getElementById("jh-load").onclick = jhLoadShortlist;
+
+document.getElementById("jh-run").onclick = async function () {
+  const id = jhProfileId();
+  jhSetStatus("Запускаємо метч…");
+  try {
+    const r = await fetch("/profiles/" + encodeURIComponent(id) + "/run", { method: "POST" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    jhSetStatus("Метч запущено — за хвилину тисни «Завантажити шортліст».");
+  } catch (e) {
+    jhSetStatus("Помилка запуску: " + e.message, true);
+  }
+};
 </script>
 </body>
 </html>

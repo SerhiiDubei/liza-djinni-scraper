@@ -83,6 +83,41 @@ The API starts on `http://localhost:8000` by default.
 
 ---
 
+## Job Hunter (matching)
+
+LIZA includes a **Phase 1** job-hunter pipeline that scores scraped vacancies against a candidate profile using an LLM and builds a ranked shortlist.
+
+### What it does
+
+1. For each profile, fetches all unscored vacancies from the database.
+2. Applies a fast prefilter (keyword / salary gate) to skip obviously irrelevant postings.
+3. Sends each remaining vacancy to an OpenRouter LLM (default: `gpt-4o-mini`) with the profile's requirements and the vacancy text; receives a numeric score (0–100), a verdict (`shortlisted` / `rejected`), and a short reasoning.
+4. Persists results in the `candidacies` table — each vacancy is scored at most once per profile (`score-once` guarantee).
+5. A **threshold** on the profile filters the final shortlist.
+
+This is Phase 1 of a larger pipeline; research, cover-letter generation, and a full application funnel are planned for later phases.
+
+### Required env variables
+
+| Variable | Description |
+|---|---|
+| `OPENROUTER_API_KEY` | API key from [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `LLM_MODEL_SCORE` | OpenRouter model ID used for scoring (default: `openai/gpt-4o-mini`) |
+
+### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/profiles` | Create a new candidate profile |
+| `GET` | `/profiles` | List all profiles |
+| `GET` | `/profiles/{id}` | Fetch a single profile by ID |
+| `POST` | `/profiles/{id}/run` | Trigger LLM matching for a profile (async, returns immediately) |
+| `GET` | `/candidacies` | List candidacies; supports `?profile=`, `?status=`, `?min_score=` |
+
+The dashboard at `/` includes a **Job Hunter — Shortlist** tab where you can trigger a match run and browse shortlisted results directly in the browser.
+
+---
+
 ## Run Tests
 
 **Offline unit tests** (no network required):
