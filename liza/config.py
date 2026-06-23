@@ -1,8 +1,28 @@
 from __future__ import annotations
 
+import os
 from typing import List, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _normalized_env(name: str, environ: Optional[dict] = None) -> str:
+    """Read an env var tolerantly.
+
+    Matches even if the STORED variable name has stray surrounding whitespace or
+    newlines (a common copy-paste error in hosting dashboards, where the UI hides
+    the stray char but the process env keeps it, e.g. ``OPENROUTER_API_KEY\\n``).
+    Returns the stripped value, or '' if not found.
+    """
+    environ = os.environ if environ is None else environ
+    direct = environ.get(name)
+    if direct and direct.strip():
+        return direct.strip()
+    target = name.strip().upper()
+    for key, value in environ.items():
+        if key.strip().upper() == target and value and value.strip():
+            return value.strip()
+    return ""
 
 
 class Settings(BaseSettings):
@@ -35,3 +55,8 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Defensive: tolerate a malformed OPENROUTER_API_KEY env var NAME (stray
+# whitespace/newline from dashboard paste) that pydantic-settings would miss.
+if not settings.openrouter_api_key:
+    settings.openrouter_api_key = _normalized_env("OPENROUTER_API_KEY")
