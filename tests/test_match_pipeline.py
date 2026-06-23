@@ -80,3 +80,26 @@ async def test_llm_error_is_counted_and_swallowed(tmp_path):
     profiles.create_profile(CandidateProfile(slug="s", resume_md="cv"))
     res = await pipeline.run_match(profile_id=1, source=DbVacancySource(), scorer=_ErrScorer())
     assert res["errors"] == 1 and res["scored"] == 0
+
+
+async def test_result_has_cost_fields(tmp_path):
+    from datetime import date
+    from liza.jobhunter.source import DbVacancySource
+    from liza.models import CandidateProfile, ParsedVacancy
+    from liza.storage import repo as store
+    from liza.profiles import repo as profiles
+    from liza.jobhunter.contracts import MatchResult
+    import liza.jobhunter.pipeline as pipeline
+    store.configure(str(tmp_path / "cost.db")); store.init_db()
+    store.upsert_vacancies([ParsedVacancy(url="g", title="Growth Lead", description="x",
+                                          posted_date=date(2026, 6, 1))])
+    profiles.create_profile(CandidateProfile(slug="s", resume_md="cv"))
+
+    class TokScorer:
+        model = "fake"; prompt_tokens = 1000; completion_tokens = 200
+        async def score(self, profile, vacancy):
+            return MatchResult(score=80, verdict="apply", reasoning="ok")
+
+    res = await pipeline.run_match(profile_id=1, source=DbVacancySource(), scorer=TokScorer())
+    assert res["prompt_tokens"] == 1000 and res["completion_tokens"] == 200
+    assert res["est_cost_usd"] > 0

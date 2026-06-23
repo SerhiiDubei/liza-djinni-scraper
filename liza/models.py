@@ -75,6 +75,7 @@ class CandidateProfile(SQLModel, table=True):
     voice_md: Optional[str] = None
     remote_only: bool = True
     exclude_keywords_csv: str = ""     # CSV, matched case-insensitively
+    include_keywords_csv: str = ""   # CSV; if set, keep only vacancies whose TITLE matches one
     role_focus: Optional[str] = None
     min_score: int = 70
     language: str = "uk"
@@ -83,6 +84,10 @@ class CandidateProfile(SQLModel, table=True):
     @property
     def exclude_keywords(self) -> List[str]:
         return [k.strip().lower() for k in self.exclude_keywords_csv.split(",") if k.strip()]
+
+    @property
+    def include_keywords(self) -> List[str]:
+        return [k.strip().lower() for k in self.include_keywords_csv.split(",") if k.strip()]
 
 
 class Candidacy(SQLModel, table=True):

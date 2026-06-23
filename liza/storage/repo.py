@@ -42,7 +42,23 @@ def get_engine():
 
 
 def init_db() -> None:
-    SQLModel.metadata.create_all(get_engine())
+    engine = get_engine()
+    SQLModel.metadata.create_all(engine)
+    _ensure_columns(engine)
+
+
+def _ensure_columns(engine) -> None:
+    """Idempotently add columns introduced after a table was first created."""
+    wanted = {"candidate_profile": [("include_keywords_csv", "VARCHAR DEFAULT ''")]}
+    with engine.connect() as conn:
+        for table, cols in wanted.items():
+            existing = {row[1] for row in conn.exec_driver_sql(
+                "PRAGMA table_info(" + table + ")")}
+            for name, decl in cols:
+                if name not in existing:
+                    conn.exec_driver_sql(
+                        "ALTER TABLE " + table + " ADD COLUMN " + name + " " + decl)
+        conn.commit()
 
 
 def upsert_vacancies(parsed: List[ParsedVacancy]) -> Tuple[int, int]:

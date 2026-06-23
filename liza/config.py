@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     llm_model_score: str = "openai/gpt-4o-mini"
     llm_timeout_sec: float = 60.0
+    llm_price_in_per_m: float = 0.15    # USD per 1M input tokens (gpt-4o-mini)
+    llm_price_out_per_m: float = 0.60   # USD per 1M output tokens
     match_default_limit: int = 50   # vacancies scored per run by default
 
     @property

@@ -55,7 +55,13 @@ async def _run(profile, limit, source, scorer) -> dict:
             shortlisted += 1
         else:
             skipped += 1
-    result = {"scored": scored, "shortlisted": shortlisted, "skipped": skipped, "errors": errors}
+    pt = getattr(scorer, "prompt_tokens", 0)
+    ct = getattr(scorer, "completion_tokens", 0)
+    est = round(pt / 1_000_000 * settings.llm_price_in_per_m
+                + ct / 1_000_000 * settings.llm_price_out_per_m, 4)
+    result = {"scored": scored, "shortlisted": shortlisted, "skipped": skipped,
+              "errors": errors, "prompt_tokens": pt, "completion_tokens": ct,
+              "est_cost_usd": est}
     _state["last_result"] = result
     logger.info("match done: %s", result)
     return result

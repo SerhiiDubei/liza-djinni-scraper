@@ -56,8 +56,13 @@ class LlmScorer:
     def __init__(self, llm) -> None:        # llm: contracts.LLM
         self._llm = llm
         self.model = getattr(llm, "model", None)
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
 
     async def score(self, profile: CandidateProfile, vacancy: Vacancy) -> MatchResult:
         system, user = build_prompt(profile, vacancy)
         raw = await self._llm.complete_json(system, user)
+        usage = getattr(self._llm, "last_usage", {}) or {}
+        self.prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
+        self.completion_tokens += int(usage.get("completion_tokens", 0) or 0)
         return MatchResult(**normalize_score(raw))

@@ -25,3 +25,12 @@ async def test_missing_key_raises():
     with pytest.raises(LLMError):
         async with LLMClient(api_key="") as c:
             await c.complete_json(system="s", user="u")
+
+
+async def test_last_usage_captured():
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, json={
+        "choices": [{"message": {"content": "{\"score\": 1}"}}],
+        "usage": {"prompt_tokens": 12, "completion_tokens": 3}}))
+    async with LLMClient(api_key="x", transport=transport) as c:
+        await c.complete_json(system="s", user="u")
+        assert c.last_usage == {"prompt_tokens": 12, "completion_tokens": 3}

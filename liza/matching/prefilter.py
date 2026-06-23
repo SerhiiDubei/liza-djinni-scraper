@@ -18,4 +18,9 @@ def prefilter_reason(profile: CandidateProfile, vacancy: Vacancy) -> Optional[st
     for kw in profile.exclude_keywords:
         if kw in haystack:
             return "excluded keyword: " + kw
+    include = profile.include_keywords
+    if include:
+        title = (vacancy.title or "").lower()
+        if not any(k in title for k in include):
+            return "off-target role"
     return None

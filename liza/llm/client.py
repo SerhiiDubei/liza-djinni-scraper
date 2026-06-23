@@ -30,6 +30,7 @@ class LLMClient:
         self.api_key = settings.openrouter_api_key if api_key is None else api_key
         self.model = model or settings.llm_model_score
         self.max_retries = max_retries
+        self.last_usage: dict = {}
         self._client = httpx.AsyncClient(
             base_url=base_url or settings.openrouter_base_url,
             timeout=settings.llm_timeout_sec if timeout is None else timeout,
@@ -71,7 +72,9 @@ class LLMClient:
                     await asyncio.sleep(0.5 * attempt)
                 continue
             r.raise_for_status()
-            content = r.json()["choices"][0]["message"]["content"].strip()
+            data = r.json()
+            self.last_usage = data.get("usage") or {}
+            content = data["choices"][0]["message"]["content"].strip()
             content = _FENCE.sub("", content).strip()
             try:
                 return json.loads(content)
