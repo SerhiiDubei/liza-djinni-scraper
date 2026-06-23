@@ -411,6 +411,26 @@ function jhStopPolling() {
   if (_jhPollTimer !== null) { clearInterval(_jhPollTimer); _jhPollTimer = null; }
 }
 
+function jhFormatSummary(lr) {
+  if (!lr) return "Метч завершено.";
+  const scored    = lr.scored        != null ? lr.scored        : "—";
+  const shortlist = lr.shortlisted   != null ? lr.shortlisted   : "—";
+  const skipped   = lr.skipped       != null ? lr.skipped       : "—";
+  const errors    = lr.errors        != null ? lr.errors        : "—";
+  const ptok      = lr.prompt_tokens      != null ? lr.prompt_tokens      : "—";
+  const ctok      = lr.completion_tokens  != null ? lr.completion_tokens  : "—";
+  const cost      = lr.est_cost_usd != null ? "$" + lr.est_cost_usd : "—";
+  return (
+    "✅ Готово: " +
+    "оцінено " + scored +
+    " \xb7 у шортлісті " + shortlist +
+    " \xb7 відсіяно " + skipped +
+    " \xb7 помилок " + errors +
+    " \xb7 токени " + ptok + "+" + ctok +
+    " \xb7 ~" + cost
+  );
+}
+
 async function jhStartPolling() {
   jhStopPolling();
   _jhPollCount = 0;
@@ -421,16 +441,11 @@ async function jhStartPolling() {
       const r = await fetch("/match-status");
       if (!r.ok) return;
       const s = await r.json();
-      const lr = s.last_result;
       if (s.in_progress) {
-        jhSetStatus("Метч виконується…" + (lr ? " (попередній: " + JSON.stringify(lr) + ")" : ""));
+        jhSetStatus("⏳ Скорю… (оновлюється кожні 3с)");
       } else {
         jhStopPolling();
-        const summary = lr
-          ? "Готово: scored=" + lr.scored + " shortlisted=" + lr.shortlisted +
-            " skipped=" + lr.skipped + " errors=" + (lr.errors || 0)
-          : "Метч завершено.";
-        jhSetStatus(summary);
+        jhSetStatus(jhFormatSummary(s.last_result));
         await jhLoadShortlist();
       }
     } catch (e) { /* ignore transient errors, keep polling */ }
