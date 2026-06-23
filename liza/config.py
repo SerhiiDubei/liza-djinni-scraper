@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     enable_scheduler: bool = True
     scrape_on_startup: bool = True
 
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    llm_model_score: str = "openai/gpt-4o-mini"
+    llm_timeout_sec: float = 60.0
+    match_default_limit: int = 50   # vacancies scored per run by default
+
     @property
     def keywords_list(self) -> List[str]:
         return [k.strip() for k in self.djinni_keywords.split(",") if k.strip()]
