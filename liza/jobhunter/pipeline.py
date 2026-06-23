@@ -27,7 +27,7 @@ def match_status() -> dict:
 
 
 async def _run(profile, limit, source, scorer) -> dict:
-    scored = shortlisted = skipped = 0
+    scored = shortlisted = skipped = errors = 0
     for vac in source.unscored(profile.id, limit):
         if vac is None:
             continue
@@ -43,6 +43,7 @@ async def _run(profile, limit, source, scorer) -> dict:
             result = await scorer.score(profile, vac)
         except LLMError as err:
             logger.warning("scoring failed for vacancy %s: %s", vac.id, err)
+            errors += 1
             continue
         status = "shortlisted" if result.score >= profile.min_score else "skipped"
         save_candidacy(Candidacy(
@@ -54,7 +55,7 @@ async def _run(profile, limit, source, scorer) -> dict:
             shortlisted += 1
         else:
             skipped += 1
-    result = {"scored": scored, "shortlisted": shortlisted, "skipped": skipped}
+    result = {"scored": scored, "shortlisted": shortlisted, "skipped": skipped, "errors": errors}
     _state["last_result"] = result
     logger.info("match done: %s", result)
     return result

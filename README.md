@@ -90,10 +90,10 @@ LIZA includes a **Phase 1** job-hunter pipeline that scores scraped vacancies ag
 ### What it does
 
 1. For each profile, fetches all unscored vacancies from the database.
-2. Applies a fast prefilter (keyword / salary gate) to skip obviously irrelevant postings.
-3. Sends each remaining vacancy to an OpenRouter LLM (default: `gpt-4o-mini`) with the profile's requirements and the vacancy text; receives a numeric score (0–100), a verdict (`shortlisted` / `rejected`), and a short reasoning.
+2. Applies a fast keyword prefilter to skip obviously irrelevant postings without calling the LLM.
+3. Sends each remaining vacancy to an OpenRouter LLM (default: `gpt-4o-mini`) with the profile's requirements and the vacancy text; receives a numeric score (0–100), a verdict (`apply` / `consider` / `skip`), and a short reasoning.
 4. Persists results in the `candidacies` table — each vacancy is scored at most once per profile (`score-once` guarantee).
-5. A **threshold** on the profile filters the final shortlist.
+5. A **threshold** (`min_score` on the profile) determines the candidacy **status**: `shortlisted` (score ≥ threshold) or `skipped` (score < threshold).
 
 This is Phase 1 of a larger pipeline; research, cover-letter generation, and a full application funnel are planned for later phases.
 

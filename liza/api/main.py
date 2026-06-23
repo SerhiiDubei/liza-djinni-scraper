@@ -102,6 +102,11 @@ def get_profile(profile_id: int) -> ProfileRead:
     return ProfileRead.model_validate(p)
 
 
+@app.get("/match-status")
+def match_status() -> dict:
+    return jobhunter_pipeline.match_status()
+
+
 @app.post("/profiles/{profile_id}/run")
 async def run_match(profile_id: int, limit: Optional[int] = None) -> dict:
     if profiles_repo.get_profile(profile_id) is None:

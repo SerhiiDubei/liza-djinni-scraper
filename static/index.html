@@ -348,19 +348,14 @@ function jhRenderRows(items) {
 
     // Назва (link)
     const tdTitle = document.createElement("td");
-    const v = c.vacancy || {};
-    if (v.url && v.title) {
-      const a = document.createElement("a");
-      a.href = /^https?:\/\//.test(v.url) ? v.url : "#";
-      a.target = "_blank"; a.rel = "noopener";
-      a.textContent = v.title;
-      tdTitle.appendChild(a);
-    } else {
-      tdTitle.textContent = v.title || "—";
-    }
+    const a = document.createElement("a");
+    a.href = /^https?:\/\//.test(c.url || "") ? c.url : "#";
+    a.target = "_blank"; a.rel = "noopener";
+    a.textContent = c.title || "—";
+    tdTitle.appendChild(a);
     tr.appendChild(tdTitle);
 
-    tr.appendChild(cellText(v.company || null, "co"));
+    tr.appendChild(cellText(c.company || null, "co"));
 
     // Вердикт
     const verdict = c.verdict || c.status || null;
@@ -409,13 +404,50 @@ async function jhLoadShortlist() {
 
 document.getElementById("jh-load").onclick = jhLoadShortlist;
 
+let _jhPollTimer = null;
+let _jhPollCount = 0;
+
+function jhStopPolling() {
+  if (_jhPollTimer !== null) { clearInterval(_jhPollTimer); _jhPollTimer = null; }
+}
+
+async function jhStartPolling() {
+  jhStopPolling();
+  _jhPollCount = 0;
+  _jhPollTimer = setInterval(async () => {
+    _jhPollCount++;
+    if (_jhPollCount > 40) { jhStopPolling(); jhSetStatus("Метч завершено (таймаут опитування)."); return; }
+    try {
+      const r = await fetch("/match-status");
+      if (!r.ok) return;
+      const s = await r.json();
+      const lr = s.last_result;
+      if (s.in_progress) {
+        jhSetStatus("Метч виконується…" + (lr ? " (попередній: " + JSON.stringify(lr) + ")" : ""));
+      } else {
+        jhStopPolling();
+        const summary = lr
+          ? "Готово: scored=" + lr.scored + " shortlisted=" + lr.shortlisted +
+            " skipped=" + lr.skipped + " errors=" + (lr.errors || 0)
+          : "Метч завершено.";
+        jhSetStatus(summary);
+        await jhLoadShortlist();
+      }
+    } catch (e) { /* ignore transient errors, keep polling */ }
+  }, 3000);
+}
+
 document.getElementById("jh-run").onclick = async function () {
   const id = jhProfileId();
   jhSetStatus("Запускаємо метч…");
   try {
     const r = await fetch("/profiles/" + encodeURIComponent(id) + "/run", { method: "POST" });
     if (!r.ok) throw new Error("HTTP " + r.status);
-    jhSetStatus("Метч запущено — за хвилину тисни «Завантажити шортліст».");
+    const res = await r.json();
+    if (res.status === "started" || res.status === "already_running") {
+      jhSetStatus("Метч запущено — опитуємо статус…");
+      jhStartPolling();
+    }
   } catch (e) {
     jhSetStatus("Помилка запуску: " + e.message, true);
   }

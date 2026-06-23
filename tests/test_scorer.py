@@ -17,3 +17,7 @@ def test_build_prompt_includes_resume_and_vacancy():
     system, user = build_prompt(p, v)
     assert "MY-RESUME" in user and "Growth PM" in user
     assert "JSON" in system.upper()
+
+
+def test_normalize_non_numeric_score_defaults_zero():
+    assert normalize_score({"score": "high", "verdict": "apply"})["score"] == 0
